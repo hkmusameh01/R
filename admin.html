@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>لوحة المدرس</title>
+<style>
+  :root{--bg:#f6f7fb;--card:#fff;--text:#1d2330;--muted:#6b7385;--accent:#2563eb;--accent-h:#1d4ed8;--line:#e6e8ef;--danger:#dc2626;--ok:#16a34a;--input:#fff}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8ebf2;--muted:#9aa3b5;--accent:#3b82f6;--accent-h:#60a5fa;--line:#262b37;--danger:#f87171;--ok:#4ade80;--input:#11151c}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"Segoe UI",Tahoma,sans-serif;line-height:1.6}
+  main{max-width:640px;margin:0 auto;padding:40px 16px 64px}
+  h1{margin:0 0 4px;font-size:1.6rem}
+  h2{font-size:1.1rem;margin:0 0 14px}
+  .sub{margin:0 0 24px;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px}
+  label{display:block;font-weight:600;margin:0 0 6px}
+  .hint{color:var(--muted);font-size:.85rem;margin:-2px 0 10px}
+  input[type=text],input[type=password]{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);font:inherit}
+  input[type=file]{width:100%;padding:10px;border:1px dashed var(--line);border-radius:10px;background:var(--input);color:var(--text);font:inherit}
+  .field{margin-bottom:14px}
+  button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:12px 16px;font-weight:600}
+  .primary{background:var(--accent);color:#fff;width:100%}
+  .primary:hover{background:var(--accent-h)}
+  .primary:disabled{opacity:.6;cursor:wait}
+  .link{background:none;color:var(--muted);padding:4px 0;text-decoration:underline;font-weight:400}
+  .msg{margin:12px 0 0;font-size:.95rem;min-height:1.2em}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--ok)}
+  ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  li{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .info{flex:1;min-width:0}
+  .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .size{color:var(--muted);font-size:.85rem}
+  .del{flex:none;width:40px;height:40px;padding:0;display:grid;place-items:center;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
+  .del:hover{background:var(--danger);color:#fff}
+  .empty{color:var(--muted);text-align:center;margin:6px 0}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  a{color:var(--accent)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>لوحة المدرس</h1>
+  <p class="sub">ارفع ملفات لطلابك أو احذف القديمة. صفحة الطلاب: <a href="./" target="_blank">فتح</a></p>
+
+  <!-- إدخال المفتاح -->
+  <section class="card" id="loginCard">
+    <h2>تسجيل الدخول</h2>
+    <div class="field">
+      <label for="token">مفتاح الدخول</label>
+      <p class="hint">بتدخله مرة وحدة بس، وبينحفظ على هاد الجهاز.</p>
+      <input type="password" id="token" autocomplete="off" placeholder="github_pat_…">
+    </div>
+    <button class="primary" id="loginBtn">دخول</button>
+    <p class="msg" id="loginMsg"></p>
+  </section>
+
+  <!-- الرفع -->
+  <section class="card" id="uploadCard" hidden>
+    <h2>رفع ملف جديد</h2>
+    <div class="field">
+      <label for="file">الملف</label>
+      <input type="file" id="file">
+    </div>
+    <div class="field">
+      <label for="title">اسم الملف كما يظهر للطلاب</label>
+      <p class="hint">مثلاً: واجب الأسبوع الثالث. إذا تركته فاضي بيبقى اسم الملف الأصلي.</p>
+      <input type="text" id="title" placeholder="اسم الملف">
+    </div>
+    <button class="primary" id="uploadBtn">رفع</button>
+    <p class="msg" id="uploadMsg"></p>
+  </section>
+
+  <!-- القائمة -->
+  <section class="card" id="listCard" hidden>
+    <div class="row"><h2>الملفات الحالية</h2><button class="link" id="refreshBtn">تحديث</button></div>
+    <ul id="list"></ul>
+    <p class="msg" id="listMsg"></p>
+  </section>
+
+  <button class="link" id="logoutBtn" hidden>تسجيل الخروج من هاد الجهاز</button>
+</main>
+
+<script>
+const CONFIG = { owner: "", repo: "", folder: "files", maxMB: 25, fallbackOwner: "hkmusameh01", fallbackRepo: "R" };
+const API = "https://api.github.com";
+const KEY = "teacher_token";
+const $ = id => document.getElementById(id);
+
+function detectRepo() {
+  const host = location.hostname;
+  if (!host.endsWith("github.io")) return { owner: CONFIG.owner || CONFIG.fallbackOwner, repo: CONFIG.repo || CONFIG.fallbackRepo };
+  const owner = CONFIG.owner || host.split(".")[0];
+  const parts = location.pathname.split("/").filter(Boolean);
+  const repo = CONFIG.repo || (parts.length && !parts[0].includes(".") ? parts[0] : host);
+  return { owner, repo };
+}
+const { owner, repo } = detectRepo();
+
+function getToken() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } }
+function setToken(t) { try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
+
+function setMsg(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
+
+function filePath(name) { return `${API}/repos/${owner}/${repo}/contents/${CONFIG.folder}/${encodeURIComponent(name)}`; }
+
+async function gh(url, opts = {}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { "Accept": "application/vnd.github+json", "Authorization": "Bearer " + getToken(), ...(opts.body ? { "Content-Type": "application/json" } : {}) }
+  });
+  if (res.status === 404) return { status: 404, data: null };
+  if (!res.ok) {
+    let detail = ""; try { detail = (await res.json()).message || ""; } catch {}
+    const err = new Error(detail || res.status); err.status = res.status; throw err;
+  }
+  return { status: res.status, data: res.status === 204 ? null : await res.json() };
+}
+
+function explain(e) {
+  if (e.status === 401) return "المفتاح غلط أو انتهت صلاحيته.";
+  if (e.status === 403) return "المفتاح ما عنده صلاحية على هاد الموقع.";
+  if (e.status === 409 || e.status === 422) return "صار تعارض. حدّث القائمة وجرب مرة ثانية.";
+  if (!navigator.onLine) return "ما في إنترنت.";
+  return "صار خطأ: " + e.message;
+}
+
+function formatSize(b) {
+  if (b == null) return "";
+  const u = ["B","KB","MB","GB"]; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return b.toFixed(i ? 1 : 0) + " " + u[i];
+}
+
+function buildName(file, title) {
+  const orig = file.name;
+  const dot = orig.lastIndexOf(".");
+  const ext = dot > 0 ? orig.slice(dot) : "";
+  let base = (title || "").trim();
+  if (!base) return orig.replace(/[\/\\]/g, "-");
+  base = base.replace(/[\/\\:*?"<>|#%]/g, "-").replace(/\s+/g, " ").replace(/^\.+/, "").trim();
+  if (!base) return orig;
+  if (ext && base.toLowerCase().endsWith(ext.toLowerCase())) return base;
+  return base + ext;
+}
+
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error("تعذّر قراءة الملف"));
+    r.readAsDataURL(file);
+  });
+}
+
+const trashIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+
+async function loadList() {
+  const list = $("list"), msg = $("listMsg");
+  setMsg(msg, "جاري التحميل…");
+  try {
+    const { status, data } = await gh(`${API}/repos/${owner}/${repo}/contents/${CONFIG.folder}?t=${Date.now()}`);
+    const files = status === 404 ? [] : data.filter(x => x.type === "file" && !x.name.startsWith("."));
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    list.innerHTML = "";
+    if (!files.length) { setMsg(msg, "ما في ملفات حالياً."); return true; }
+    setMsg(msg, "");
+    for (const f of files) {
+      const li = document.createElement("li");
+      li.innerHTML = `<div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
+        <button class="del" title="حذف" aria-label="حذف">${trashIcon}</button>`;
+      li.querySelector(".name").textContent = f.name;
+      li.querySelector(".del").onclick = () => removeFile(f, li);
+      list.appendChild(li);
+    }
+    return true;
+  } catch (e) {
+    setMsg(msg, explain(e), "err");
+    return e;
+  }
+}
+
+async function removeFile(f, li) {
+  if (!confirm(`حذف "${f.name}"؟ الطلاب ما رح يقدروا ينزلوه بعدها.`)) return;
+  const btn = li.querySelector(".del"); btn.disabled = true; li.style.opacity = .5;
+  try {
+    await gh(filePath(f.name), { method: "DELETE", body: JSON.stringify({ message: `حذف ${f.name}`, sha: f.sha }) });
+    li.remove();
+    setMsg($("listMsg"), `انحذف "${f.name}".`, "ok");
+    if (!$("list").children.length) setMsg($("listMsg"), "ما في ملفات حالياً.");
+  } catch (e) {
+    btn.disabled = false; li.style.opacity = 1;
+    setMsg($("listMsg"), explain(e), "err");
+  }
+}
+
+async function upload() {
+  const file = $("file").files[0], msg = $("uploadMsg"), btn = $("uploadBtn");
+  if (!file) return setMsg(msg, "اختار ملف أولاً.", "err");
+  if (file.size > CONFIG.maxMB * 1024 * 1024) return setMsg(msg, `الملف أكبر من ${CONFIG.maxMB}MB.`, "err");
+  const name = buildName(file, $("title").value);
+  btn.disabled = true; setMsg(msg, "جاري الرفع…");
+  try {
+    const existing = await gh(filePath(name) + "?t=" + Date.now());
+    let sha;
+    if (existing.status !== 404 && existing.data) {
+      if (!confirm(`في ملف اسمه "${name}". بدك تستبدله؟`)) { setMsg(msg, "انلغى الرفع."); return; }
+      sha = existing.data.sha;
+    }
+    const content = await readBase64(file);
+    await gh(filePath(name), { method: "PUT", body: JSON.stringify({ message: `رفع ${name}`, content, ...(sha ? { sha } : {}) }) });
+    setMsg(msg, `انرفع "${name}". بيصير جاهز للطلاب خلال دقيقة تقريباً.`, "ok");
+    $("file").value = ""; $("title").value = "";
+    loadList();
+  } catch (e) {
+    setMsg(msg, explain(e), "err");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showApp(on) {
+  $("loginCard").hidden = on;
+  $("uploadCard").hidden = !on;
+  $("listCard").hidden = !on;
+  $("logoutBtn").hidden = !on;
+}
+
+async function login() {
+  const t = $("token").value.trim();
+  if (!t) return setMsg($("loginMsg"), "اكتب المفتاح.", "err");
+  setToken(t); setMsg($("loginMsg"), "جاري التحقق…");
+  try {
+    await gh(`${API}/repos/${owner}/${repo}`);
+    $("token").value = ""; setMsg($("loginMsg"), "");
+    showApp(true); loadList();
+  } catch (e) {
+    setToken(""); setMsg($("loginMsg"), explain(e), "err");
+  }
+}
+
+$("loginBtn").onclick = login;
+$("token").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+$("uploadBtn").onclick = upload;
+$("refreshBtn").onclick = loadList;
+$("logoutBtn").onclick = () => { if (confirm("تسجيل الخروج من هاد الجهاز؟")) { setToken(""); showApp(false); } };
+
+if (getToken()) { showApp(true); loadList().then(r => { if (r !== true && r && (r.status === 401 || r.status === 403)) { setToken(""); showApp(false); setMsg($("loginMsg"), "المفتاح انتهت صلاحيته. أدخل مفتاح جديد.", "err"); } }); }
+</script>
+</body>
+</html>

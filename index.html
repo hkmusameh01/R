@@ -67,13 +67,14 @@ function render(files) {
   status.textContent = "";
   files.sort((a, b) => a.name.localeCompare(b.name));
   for (const f of files) {
-    const href = CONFIG.folder + "/" + encodeURIComponent(f.name);
+    const href = CONFIG.folder + "/" + encodeURIComponent(f.name) + (f.sha ? "?v=" + f.sha.slice(0, 7) : "");
     const li = document.createElement("li");
     li.innerHTML = `
       <div class="ficon">${fileIcon}</div>
       <div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
       <a class="dl" href="${href}" download title="تحميل" aria-label="تحميل">${dlIcon}</a>`;
     li.querySelector(".name").textContent = f.name;
+    li.querySelector(".dl").setAttribute("download", f.name);
     list.appendChild(li);
   }
 }
@@ -83,6 +84,7 @@ async function load() {
   const { owner, repo } = detectRepo();
   try {
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${CONFIG.folder}`);
+    if (res.status === 404) return render([]);
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
     render(data.filter(x => x.type === "file" && !x.name.startsWith(".")));
