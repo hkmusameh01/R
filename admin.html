@@ -34,7 +34,6 @@
   .size{color:var(--muted);font-size:.85rem}
   .del{flex:none;width:40px;height:40px;padding:0;display:grid;place-items:center;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
   .del:hover{background:var(--danger);color:#fff}
-  .empty{color:var(--muted);text-align:center;margin:6px 0}
   .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
   a{color:var(--accent)}
   [hidden]{display:none!important}
@@ -45,13 +44,30 @@
   <h1>لوحة المدرس</h1>
   <p class="sub">ارفع ملفات لطلابك أو احذف القديمة. صفحة الطلاب: <a href="./" target="_blank">فتح</a></p>
 
-  <!-- إدخال المفتاح -->
-  <section class="card" id="loginCard">
+  <p class="msg" id="bootMsg">جاري التحميل…</p>
+
+  <!-- إعداد لمرة وحدة (لصاحب الموقع) -->
+  <section class="card" id="setupCard" hidden>
+    <h2>إعداد كلمة السر</h2>
+    <p class="hint">هاي الخطوة لصاحب الموقع بس، مرة وحدة، أو لما يخلص التوكن.</p>
+    <div class="field">
+      <label for="setupToken">GitHub token</label>
+      <input type="password" id="setupToken" autocomplete="off" placeholder="github_pat_…">
+    </div>
+    <div class="field">
+      <label for="setupPass">كلمة السر للمدرس</label>
+      <input type="text" id="setupPass" autocomplete="off" placeholder="كلمة السر">
+    </div>
+    <button class="primary" id="setupBtn">حفظ</button>
+    <p class="msg" id="setupMsg"></p>
+  </section>
+
+  <!-- دخول المدرس -->
+  <section class="card" id="loginCard" hidden>
     <h2>تسجيل الدخول</h2>
     <div class="field">
-      <label for="token">مفتاح الدخول</label>
-      <p class="hint">بتدخله مرة وحدة بس، وبينحفظ على هاد الجهاز.</p>
-      <input type="password" id="token" autocomplete="off" placeholder="github_pat_…">
+      <label for="pass">كلمة السر</label>
+      <input type="password" id="pass" autocomplete="current-password">
     </div>
     <button class="primary" id="loginBtn">دخول</button>
     <p class="msg" id="loginMsg"></p>
@@ -84,9 +100,9 @@
 </main>
 
 <script>
-const CONFIG = { owner: "", repo: "", folder: "files", maxMB: 25, fallbackOwner: "hkmusameh01", fallbackRepo: "R" };
+const CONFIG = { owner: "", repo: "", folder: "files", authFile: "auth.json", maxMB: 25, fallbackOwner: "hkmusameh01", fallbackRepo: "R" };
 const API = "https://api.github.com";
-const KEY = "teacher_token";
+const KEY = "teacher_session";
 const $ = id => document.getElementById(id);
 
 function detectRepo() {
@@ -98,18 +114,41 @@ function detectRepo() {
   return { owner, repo };
 }
 const { owner, repo } = detectRepo();
+const REPO_API = `${API}/repos/${owner}/${repo}`;
 
-function getToken() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } }
-function setToken(t) { try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
+/* ---------- تخزين الجلسة ---------- */
+let memToken = "";
+function getToken() { try { return localStorage.getItem(KEY) || memToken; } catch { return memToken; } }
+function setToken(t) { memToken = t || ""; try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
 
+/* ---------- إخفاء التوكن ورا كلمة السر ---------- */
+const enc = new TextEncoder(), dec = new TextDecoder();
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function deriveKey(pw, salt, iter) {
+  const base = await crypto.subtle.importKey("raw", enc.encode(pw), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function lockToken(token, pw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 600000;
+  const key = await deriveKey(pw, salt, iter);
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(token));
+  return { v: 1, iter, salt: b64(salt), iv: b64(iv), data: b64(data) };
+}
+async function unlockToken(a, pw) {
+  const key = await deriveKey(pw, unb64(a.salt), a.iter);
+  return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(a.iv) }, key, unb64(a.data)));
+}
+
+/* ---------- GitHub API ---------- */
 function setMsg(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
+function contentUrl(path) { return `${REPO_API}/contents/${path.split("/").map(encodeURIComponent).join("/")}`; }
+function filePath(name) { return contentUrl(`${CONFIG.folder}/${name}`); }
 
-function filePath(name) { return `${API}/repos/${owner}/${repo}/contents/${CONFIG.folder}/${encodeURIComponent(name)}`; }
-
-async function gh(url, opts = {}) {
+async function gh(url, opts = {}, token = getToken()) {
   const res = await fetch(url, {
     ...opts,
-    headers: { "Accept": "application/vnd.github+json", "Authorization": "Bearer " + getToken(), ...(opts.body ? { "Content-Type": "application/json" } : {}) }
+    headers: { "Accept": "application/vnd.github+json", ...(token ? { "Authorization": "Bearer " + token } : {}), ...(opts.body ? { "Content-Type": "application/json" } : {}) }
   });
   if (res.status === 404) return { status: 404, data: null };
   if (!res.ok) {
@@ -119,12 +158,32 @@ async function gh(url, opts = {}) {
   return { status: res.status, data: res.status === 204 ? null : await res.json() };
 }
 
+async function fetchAuth() {
+  const res = await fetch(contentUrl(CONFIG.authFile) + "?t=" + Date.now(), { headers: { "Accept": "application/vnd.github.raw+json" } });
+  if (res.status === 404) return null;
+  if (!res.ok) { const e = new Error(res.status); e.status = res.status; throw e; }
+  return JSON.parse(await res.text());
+}
+
 function explain(e) {
-  if (e.status === 401) return "المفتاح غلط أو انتهت صلاحيته.";
-  if (e.status === 403) return "المفتاح ما عنده صلاحية على هاد الموقع.";
+  if (e.status === 401) return "انتهت صلاحية الدخول. إذا تكررت، تواصل مع صاحب الموقع.";
+  if (e.status === 403) return "ما في صلاحية للرفع. تواصل مع صاحب الموقع.";
   if (e.status === 409 || e.status === 422) return "صار تعارض. حدّث القائمة وجرب مرة ثانية.";
   if (!navigator.onLine) return "ما في إنترنت.";
   return "صار خطأ: " + e.message;
+}
+
+/* ---------- واجهة ---------- */
+function show(view) {
+  $("bootMsg").hidden = true;
+  $("setupCard").hidden = view !== "setup";
+  $("loginCard").hidden = view !== "login";
+  $("uploadCard").hidden = $("listCard").hidden = $("logoutBtn").hidden = view !== "app";
+}
+
+function sessionExpired(e) {
+  if (e && e.status === 401) { setToken(""); show("login"); setMsg($("loginMsg"), explain(e), "err"); return true; }
+  return false;
 }
 
 function formatSize(b) {
@@ -161,11 +220,11 @@ async function loadList() {
   const list = $("list"), msg = $("listMsg");
   setMsg(msg, "جاري التحميل…");
   try {
-    const { status, data } = await gh(`${API}/repos/${owner}/${repo}/contents/${CONFIG.folder}?t=${Date.now()}`);
+    const { status, data } = await gh(`${REPO_API}/contents/${CONFIG.folder}?t=${Date.now()}`);
     const files = status === 404 ? [] : data.filter(x => x.type === "file" && !x.name.startsWith("."));
     files.sort((a, b) => a.name.localeCompare(b.name));
     list.innerHTML = "";
-    if (!files.length) { setMsg(msg, "ما في ملفات حالياً."); return true; }
+    if (!files.length) return setMsg(msg, "ما في ملفات حالياً.");
     setMsg(msg, "");
     for (const f of files) {
       const li = document.createElement("li");
@@ -175,10 +234,8 @@ async function loadList() {
       li.querySelector(".del").onclick = () => removeFile(f, li);
       list.appendChild(li);
     }
-    return true;
   } catch (e) {
-    setMsg(msg, explain(e), "err");
-    return e;
+    if (!sessionExpired(e)) setMsg(msg, explain(e), "err");
   }
 }
 
@@ -188,11 +245,10 @@ async function removeFile(f, li) {
   try {
     await gh(filePath(f.name), { method: "DELETE", body: JSON.stringify({ message: `حذف ${f.name}`, sha: f.sha }) });
     li.remove();
-    setMsg($("listMsg"), `انحذف "${f.name}".`, "ok");
-    if (!$("list").children.length) setMsg($("listMsg"), "ما في ملفات حالياً.");
+    setMsg($("listMsg"), $("list").children.length ? `انحذف "${f.name}".` : "ما في ملفات حالياً.", $("list").children.length ? "ok" : "");
   } catch (e) {
     btn.disabled = false; li.style.opacity = 1;
-    setMsg($("listMsg"), explain(e), "err");
+    if (!sessionExpired(e)) setMsg($("listMsg"), explain(e), "err");
   }
 }
 
@@ -215,39 +271,67 @@ async function upload() {
     $("file").value = ""; $("title").value = "";
     loadList();
   } catch (e) {
+    if (!sessionExpired(e)) setMsg(msg, explain(e), "err");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function login() {
+  const pw = $("pass").value, btn = $("loginBtn"), msg = $("loginMsg");
+  if (!pw) return setMsg(msg, "اكتب كلمة السر.", "err");
+  btn.disabled = true; setMsg(msg, "جاري التحقق…");
+  try {
+    const auth = await fetchAuth();
+    if (!auth) { show("setup"); return; }
+    let token;
+    try { token = await unlockToken(auth, pw); } catch { return setMsg(msg, "كلمة السر غلط.", "err"); }
+    setToken(token);
+    $("pass").value = ""; setMsg(msg, "");
+    show("app"); loadList();
+  } catch (e) {
     setMsg(msg, explain(e), "err");
   } finally {
     btn.disabled = false;
   }
 }
 
-function showApp(on) {
-  $("loginCard").hidden = on;
-  $("uploadCard").hidden = !on;
-  $("listCard").hidden = !on;
-  $("logoutBtn").hidden = !on;
-}
-
-async function login() {
-  const t = $("token").value.trim();
-  if (!t) return setMsg($("loginMsg"), "اكتب المفتاح.", "err");
-  setToken(t); setMsg($("loginMsg"), "جاري التحقق…");
+async function setup() {
+  const token = $("setupToken").value.trim(), pw = $("setupPass").value, btn = $("setupBtn"), msg = $("setupMsg");
+  if (!token) return setMsg(msg, "الصق التوكن.", "err");
+  if (!pw) return setMsg(msg, "اكتب كلمة السر.", "err");
+  btn.disabled = true; setMsg(msg, "جاري الحفظ…");
   try {
-    await gh(`${API}/repos/${owner}/${repo}`);
-    $("token").value = ""; setMsg($("loginMsg"), "");
-    showApp(true); loadList();
+    const existing = await gh(contentUrl(CONFIG.authFile) + "?t=" + Date.now(), {}, token);
+    const locked = await lockToken(token, pw);
+    const body = { message: "تحديث كلمة سر لوحة المدرس", content: btoa(JSON.stringify(locked)) };
+    if (existing.status !== 404 && existing.data) body.sha = existing.data.sha;
+    await gh(contentUrl(CONFIG.authFile), { method: "PUT", body: JSON.stringify(body) }, token);
+    $("setupToken").value = ""; $("setupPass").value = "";
+    setToken("");
+    history.replaceState(null, "", location.pathname);
+    show("login");
+    setMsg($("loginMsg"), "انحفظت كلمة السر. ادخل فيها هلأ.", "ok");
   } catch (e) {
-    setToken(""); setMsg($("loginMsg"), explain(e), "err");
+    setMsg(msg, e.status === 401 ? "التوكن غلط أو منتهي." : e.status === 403 ? "التوكن ما عنده صلاحية Contents: Read and write على هاد الريبو." : explain(e), "err");
+  } finally {
+    btn.disabled = false;
   }
 }
 
+$("setupBtn").onclick = setup;
 $("loginBtn").onclick = login;
-$("token").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+$("pass").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
 $("uploadBtn").onclick = upload;
 $("refreshBtn").onclick = loadList;
-$("logoutBtn").onclick = () => { if (confirm("تسجيل الخروج من هاد الجهاز؟")) { setToken(""); showApp(false); } };
+$("logoutBtn").onclick = () => { if (confirm("تسجيل الخروج من هاد الجهاز؟")) { setToken(""); show("login"); } };
 
-if (getToken()) { showApp(true); loadList().then(r => { if (r !== true && r && (r.status === 401 || r.status === 403)) { setToken(""); showApp(false); setMsg($("loginMsg"), "المفتاح انتهت صلاحيته. أدخل مفتاح جديد.", "err"); } }); }
+(async () => {
+  if (new URLSearchParams(location.search).has("setup")) return show("setup");
+  if (getToken()) { show("app"); return loadList(); }
+  try { show((await fetchAuth()) ? "login" : "setup"); }
+  catch (e) { $("bootMsg").textContent = explain(e); $("bootMsg").className = "msg err"; }
+})();
 </script>
 </body>
 </html>
