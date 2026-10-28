@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تحميل الملفات</title>
+<style>
+  :root{--bg:#f6f7fb;--card:#fff;--text:#1d2330;--muted:#6b7385;--accent:#2563eb;--accent-h:#1d4ed8;--line:#e6e8ef}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8ebf2;--muted:#9aa3b5;--accent:#3b82f6;--accent-h:#60a5fa;--line:#262b37}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"Segoe UI",Tahoma,sans-serif;line-height:1.6}
+  main{max-width:640px;margin:0 auto;padding:48px 16px}
+  h1{margin:0 0 4px;font-size:1.7rem}
+  .sub{margin:0 0 28px;color:var(--muted)}
+  ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+  li{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .ficon{flex:none;width:40px;height:40px;border-radius:10px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);display:grid;place-items:center}
+  .info{flex:1;min-width:0}
+  .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .size{color:var(--muted);font-size:.85rem}
+  .dl{flex:none;width:44px;height:44px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;transition:.15s}
+  .dl:hover{background:var(--accent-h);transform:translateY(-1px)}
+  #status{color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>ملفات للتحميل</h1>
+  <p class="sub">اضغط على أيقونة التحميل لتنزيل الملف</p>
+  <ul id="list"></ul>
+  <p id="status">جاري التحميل…</p>
+</main>
+
+<script>
+/* ===== الإعدادات ===== */
+const CONFIG = {
+  owner: "",        // اسم حسابك على GitHub — اتركه فاضي ليتعرّف تلقائياً
+  repo: "",         // اسم الريبو — اتركه فاضي ليتعرّف تلقائياً
+  folder: "files",  // المجلد اللي بترفع فيه الملفات
+  manualFiles: []   // اختياري: لو بدك تكتب الأسماء يدوياً بدل القراءة التلقائية، مثال: ["cv.pdf","app.zip"]
+};
+/* ===================== */
+
+const fileIcon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+const dlIcon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
+
+const list = document.getElementById("list");
+const status = document.getElementById("status");
+
+function detectRepo() {
+  const host = location.hostname;                 // username.github.io
+  const owner = CONFIG.owner || host.split(".")[0];
+  const parts = location.pathname.split("/").filter(Boolean);
+  const repo = CONFIG.repo || (parts.length && !parts[0].includes(".") ? parts[0] : host);
+  return { owner, repo };
+}
+
+function formatSize(b) {
+  if (b == null) return "";
+  const u = ["B","KB","MB","GB"]; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return b.toFixed(i ? 1 : 0) + " " + u[i];
+}
+
+function render(files) {
+  if (!files.length) { status.textContent = "لا توجد ملفات حالياً."; return; }
+  status.textContent = "";
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  for (const f of files) {
+    const href = CONFIG.folder + "/" + encodeURIComponent(f.name);
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div class="ficon">${fileIcon}</div>
+      <div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
+      <a class="dl" href="${href}" download title="تحميل" aria-label="تحميل">${dlIcon}</a>`;
+    li.querySelector(".name").textContent = f.name;
+    list.appendChild(li);
+  }
+}
+
+async function load() {
+  if (CONFIG.manualFiles.length) return render(CONFIG.manualFiles.map(name => ({ name })));
+  const { owner, repo } = detectRepo();
+  try {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${CONFIG.folder}`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    render(data.filter(x => x.type === "file" && !x.name.startsWith(".")));
+  } catch (e) {
+    status.textContent = "تعذّر جلب قائمة الملفات. تأكد إن الريبو Public وإن مجلد \"" + CONFIG.folder + "\" موجود، أو اكتب الأسماء في manualFiles.";
+  }
+}
+load();
+</script>
+</body>
+</html>
