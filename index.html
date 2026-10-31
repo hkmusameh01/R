@@ -31,7 +31,7 @@
 <body>
 <main>
   <h1>ملفات للتحميل</h1>
-  <p class="sub">اختار صفك، واضغط على أيقونة التحميل لتنزيل الملف</p>
+  <p class="sub">اختر صفك، واضغط على أيقونة التحميل لتنزيل الملف</p>
   <div class="tabs" role="tablist" id="tabs"></div>
   <section id="panel" role="tabpanel"></section>
   <p id="status">جاري التحميل…</p>
@@ -111,7 +111,7 @@ function renderPanel() {
     panel.appendChild(ul);
   } else {
     const p = document.createElement("p"); p.className = "empty";
-    p.textContent = "ما في ملفات لهاد الصف حالياً.";
+    p.textContent = "لا توجد ملفات لهذا الصف حاليًا.";
     panel.appendChild(p);
   }
   if (groups.general.length) {
