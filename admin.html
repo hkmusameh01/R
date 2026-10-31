@@ -6,20 +6,27 @@
 <meta name="robots" content="noindex">
 <title>لوحة المدرس</title>
 <style>
-  :root{--bg:#f6f7fb;--card:#fff;--text:#1d2330;--muted:#6b7385;--accent:#2563eb;--accent-h:#1d4ed8;--line:#e6e8ef;--danger:#dc2626;--ok:#16a34a;--input:#fff}
-  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8ebf2;--muted:#9aa3b5;--accent:#3b82f6;--accent-h:#60a5fa;--line:#262b37;--danger:#f87171;--ok:#4ade80;--input:#11151c}}
+  :root{--bg:#f6f7fb;--card:#fff;--text:#1d2330;--muted:#6b7385;--accent:#2563eb;--accent-h:#1d4ed8;--line:#e6e8ef;--danger:#dc2626;--ok:#16a34a;--input:#fff;--tab:#eceef4}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8ebf2;--muted:#9aa3b5;--accent:#3b82f6;--accent-h:#60a5fa;--line:#262b37;--danger:#f87171;--ok:#4ade80;--input:#11151c;--tab:#1c212c}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"Segoe UI",Tahoma,sans-serif;line-height:1.6}
   main{max-width:640px;margin:0 auto;padding:40px 16px 64px}
   h1{margin:0 0 4px;font-size:1.6rem}
   h2{font-size:1.1rem;margin:0 0 14px}
+  h3{font-size:.95rem;color:var(--muted);margin:18px 0 8px}
   .sub{margin:0 0 24px;color:var(--muted)}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px}
-  label{display:block;font-weight:600;margin:0 0 6px}
+  label,.label{display:block;font-weight:600;margin:0 0 6px}
   .hint{color:var(--muted);font-size:.85rem;margin:-2px 0 10px}
   input[type=text],input[type=password]{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--input);color:var(--text);font:inherit}
   input[type=file]{width:100%;padding:10px;border:1px dashed var(--line);border-radius:10px;background:var(--input);color:var(--text);font:inherit}
   .field{margin-bottom:14px}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--tab);padding:6px;border-radius:12px}
+  .seg label{margin:0;font-weight:600;text-align:center;padding:10px 6px;border-radius:8px;color:var(--muted);cursor:pointer}
+  .seg input{position:absolute;opacity:0;pointer-events:none}
+  .seg input:checked+span{color:#fff}
+  .seg label:has(input:checked){background:var(--accent)}
+  .seg input:focus-visible+span{text-decoration:underline}
   button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:12px 16px;font-weight:600}
   .primary{background:var(--accent);color:#fff;width:100%}
   .primary:hover{background:var(--accent-h)}
@@ -30,12 +37,13 @@
   ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
   li{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
   .info{flex:1;min-width:0}
-  .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}
   .size{color:var(--muted);font-size:.85rem}
   .del{flex:none;width:40px;height:40px;padding:0;display:grid;place-items:center;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
   .del:hover{background:var(--danger);color:#fff}
-  .empty{color:var(--muted);text-align:center;margin:6px 0}
+  .empty{color:var(--muted);margin:4px 0;font-size:.9rem}
   .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .row h2{margin:0}
   a{color:var(--accent)}
   [hidden]{display:none!important}
 </style>
@@ -61,6 +69,10 @@
   <section class="card" id="uploadCard" hidden>
     <h2>رفع ملف جديد</h2>
     <div class="field">
+      <span class="label">لأي صف؟</span>
+      <div class="seg" id="classPick" role="radiogroup"></div>
+    </div>
+    <div class="field">
       <label for="file">الملف</label>
       <input type="file" id="file">
     </div>
@@ -76,7 +88,7 @@
   <!-- القائمة -->
   <section class="card" id="listCard" hidden>
     <div class="row"><h2>الملفات الحالية</h2><button class="link" id="refreshBtn">تحديث</button></div>
-    <ul id="list"></ul>
+    <div id="groups"></div>
     <p class="msg" id="listMsg"></p>
   </section>
 
@@ -84,7 +96,14 @@
 </main>
 
 <script>
-const CONFIG = { owner: "", repo: "", folder: "files", maxMB: 25, fallbackOwner: "hkmusameh01", fallbackRepo: "R" };
+const CONFIG = {
+  owner: "", repo: "", branch: "main", folder: "files", maxMB: 25,
+  fallbackOwner: "hkmusameh01", fallbackRepo: "R",
+  classes: [
+    { id: "10", label: "الصف العاشر" },
+    { id: "11", label: "الصف الحادي عشر" }
+  ]
+};
 const API = "https://api.github.com";
 const KEY = "teacher_token";
 const $ = id => document.getElementById(id);
@@ -98,13 +117,14 @@ function detectRepo() {
   return { owner, repo };
 }
 const { owner, repo } = detectRepo();
+const REPO_API = `${API}/repos/${owner}/${repo}`;
 
-function getToken() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } }
-function setToken(t) { try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
+let memToken = "";
+function getToken() { try { return localStorage.getItem(KEY) || memToken; } catch { return memToken; } }
+function setToken(t) { memToken = t || ""; try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
 
 function setMsg(el, text, kind) { el.textContent = text; el.className = "msg" + (kind ? " " + kind : ""); }
-
-function filePath(name) { return `${API}/repos/${owner}/${repo}/contents/${CONFIG.folder}/${encodeURIComponent(name)}`; }
+function contentUrl(path) { return `${REPO_API}/contents/${path.split("/").map(encodeURIComponent).join("/")}`; }
 
 async function gh(url, opts = {}) {
   const res = await fetch(url, {
@@ -155,26 +175,65 @@ function readBase64(file) {
   });
 }
 
+function selectedClass() { const r = document.querySelector('input[name=cls]:checked'); return r ? r.value : ""; }
+function classLabel(id) { const c = CONFIG.classes.find(c => c.id === id); return c ? c.label : "كل الصفوف"; }
+
+function renderClassPick() {
+  const box = $("classPick"); box.innerHTML = "";
+  for (const c of CONFIG.classes) {
+    const l = document.createElement("label");
+    l.innerHTML = `<input type="radio" name="cls"><span></span>`;
+    l.querySelector("input").value = c.id;
+    l.querySelector("span").textContent = c.label;
+    l.querySelector("input").onchange = () => { if ($("uploadMsg").classList.contains("err")) setMsg($("uploadMsg"), ""); };
+    box.appendChild(l);
+  }
+}
+
 const trashIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
 
+function fileRow(f) {
+  const li = document.createElement("li");
+  li.innerHTML = `<div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
+    <button class="del" title="حذف" aria-label="حذف">${trashIcon}</button>`;
+  li.querySelector(".name").textContent = f.name;
+  li.querySelector(".del").onclick = () => removeFile(f, li);
+  return li;
+}
+
 async function loadList() {
-  const list = $("list"), msg = $("listMsg");
+  const box = $("groups"), msg = $("listMsg");
   setMsg(msg, "جاري التحميل…");
   try {
-    const { status, data } = await gh(`${API}/repos/${owner}/${repo}/contents/${CONFIG.folder}?t=${Date.now()}`);
-    const files = status === 404 ? [] : data.filter(x => x.type === "file" && !x.name.startsWith("."));
-    files.sort((a, b) => a.name.localeCompare(b.name));
-    list.innerHTML = "";
-    if (!files.length) { setMsg(msg, "ما في ملفات حالياً."); return true; }
-    setMsg(msg, "");
-    for (const f of files) {
-      const li = document.createElement("li");
-      li.innerHTML = `<div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
-        <button class="del" title="حذف" aria-label="حذف">${trashIcon}</button>`;
-      li.querySelector(".name").textContent = f.name;
-      li.querySelector(".del").onclick = () => removeFile(f, li);
-      list.appendChild(li);
+    const { status, data } = await gh(`${REPO_API}/git/trees/${CONFIG.branch}?recursive=1&t=${Date.now()}`);
+    const groups = { general: [] };
+    CONFIG.classes.forEach(c => groups[c.id] = []);
+    const prefix = CONFIG.folder + "/";
+    for (const x of (status === 404 ? [] : data.tree)) {
+      if (x.type !== "blob" || !x.path.startsWith(prefix)) continue;
+      const parts = x.path.slice(prefix.length).split("/");
+      const name = parts[parts.length - 1];
+      if (name.startsWith(".")) continue;
+      const f = { name, path: x.path, size: x.size, sha: x.sha };
+      if (parts.length === 1) groups.general.push(f);
+      else if (parts.length === 2 && groups[parts[0]] && parts[0] !== "general") groups[parts[0]].push(f);
     }
+    box.innerHTML = "";
+    const order = [...CONFIG.classes.map(c => c.id), ...(groups.general.length ? ["general"] : [])];
+    for (const id of order) {
+      const h = document.createElement("h3");
+      h.textContent = id === "general" ? "بدون صف (بتظهر لكل الصفوف)" : classLabel(id);
+      box.appendChild(h);
+      const files = groups[id].sort((a, b) => a.name.localeCompare(b.name, "ar"));
+      if (!files.length) {
+        const p = document.createElement("p"); p.className = "empty"; p.textContent = "ما في ملفات.";
+        box.appendChild(p); continue;
+      }
+      const ul = document.createElement("ul");
+      files.forEach(f => ul.appendChild(fileRow(f)));
+      box.appendChild(ul);
+    }
+    setMsg(msg, "");
     return true;
   } catch (e) {
     setMsg(msg, explain(e), "err");
@@ -186,10 +245,11 @@ async function removeFile(f, li) {
   if (!confirm(`حذف "${f.name}"؟ الطلاب ما رح يقدروا ينزلوه بعدها.`)) return;
   const btn = li.querySelector(".del"); btn.disabled = true; li.style.opacity = .5;
   try {
-    await gh(filePath(f.name), { method: "DELETE", body: JSON.stringify({ message: `حذف ${f.name}`, sha: f.sha }) });
+    await gh(contentUrl(f.path), { method: "DELETE", body: JSON.stringify({ message: `حذف ${f.path.slice(CONFIG.folder.length + 1)}`, sha: f.sha }) });
+    const ul = li.parentElement;
     li.remove();
+    if (!ul.children.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = "ما في ملفات."; ul.replaceWith(p); }
     setMsg($("listMsg"), `انحذف "${f.name}".`, "ok");
-    if (!$("list").children.length) setMsg($("listMsg"), "ما في ملفات حالياً.");
   } catch (e) {
     btn.disabled = false; li.style.opacity = 1;
     setMsg($("listMsg"), explain(e), "err");
@@ -197,21 +257,23 @@ async function removeFile(f, li) {
 }
 
 async function upload() {
-  const file = $("file").files[0], msg = $("uploadMsg"), btn = $("uploadBtn");
-  if (!file) return setMsg(msg, "اختار ملف أولاً.", "err");
+  const file = $("file").files[0], msg = $("uploadMsg"), btn = $("uploadBtn"), cls = selectedClass();
+  if (!cls) return setMsg(msg, "اختار الصف أولاً.", "err");
+  if (!file) return setMsg(msg, "اختار ملف.", "err");
   if (file.size > CONFIG.maxMB * 1024 * 1024) return setMsg(msg, `الملف أكبر من ${CONFIG.maxMB}MB.`, "err");
   const name = buildName(file, $("title").value);
+  const path = `${CONFIG.folder}/${cls}/${name}`;
   btn.disabled = true; setMsg(msg, "جاري الرفع…");
   try {
-    const existing = await gh(filePath(name) + "?t=" + Date.now());
+    const existing = await gh(contentUrl(path) + "?t=" + Date.now());
     let sha;
     if (existing.status !== 404 && existing.data) {
-      if (!confirm(`في ملف اسمه "${name}". بدك تستبدله؟`)) { setMsg(msg, "انلغى الرفع."); return; }
+      if (!confirm(`في ملف اسمه "${name}" في ${classLabel(cls)}. بدك تستبدله؟`)) { setMsg(msg, "انلغى الرفع."); return; }
       sha = existing.data.sha;
     }
     const content = await readBase64(file);
-    await gh(filePath(name), { method: "PUT", body: JSON.stringify({ message: `رفع ${name}`, content, ...(sha ? { sha } : {}) }) });
-    setMsg(msg, `انرفع "${name}". بيصير جاهز للطلاب خلال دقيقة تقريباً.`, "ok");
+    await gh(contentUrl(path), { method: "PUT", body: JSON.stringify({ message: `رفع ${cls}/${name}`, content, ...(sha ? { sha } : {}) }) });
+    setMsg(msg, `انرفع "${name}" لـ${classLabel(cls)}. بيصير جاهز للطلاب خلال دقيقة تقريباً.`, "ok");
     $("file").value = ""; $("title").value = "";
     loadList();
   } catch (e) {
@@ -233,7 +295,7 @@ async function login() {
   if (!t) return setMsg($("loginMsg"), "اكتب المفتاح.", "err");
   setToken(t); setMsg($("loginMsg"), "جاري التحقق…");
   try {
-    await gh(`${API}/repos/${owner}/${repo}`);
+    await gh(REPO_API);
     $("token").value = ""; setMsg($("loginMsg"), "");
     showApp(true); loadList();
   } catch (e) {
@@ -241,6 +303,7 @@ async function login() {
   }
 }
 
+renderClassPick();
 $("loginBtn").onclick = login;
 $("token").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
 $("uploadBtn").onclick = upload;

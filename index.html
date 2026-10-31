@@ -5,50 +5,63 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>تحميل الملفات</title>
 <style>
-  :root{--bg:#f6f7fb;--card:#fff;--text:#1d2330;--muted:#6b7385;--accent:#2563eb;--accent-h:#1d4ed8;--line:#e6e8ef}
-  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8ebf2;--muted:#9aa3b5;--accent:#3b82f6;--accent-h:#60a5fa;--line:#262b37}}
+  :root{--bg:#f6f7fb;--card:#fff;--text:#1d2330;--muted:#6b7385;--accent:#2563eb;--accent-h:#1d4ed8;--line:#e6e8ef;--tab:#eceef4}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--text:#e8ebf2;--muted:#9aa3b5;--accent:#3b82f6;--accent-h:#60a5fa;--line:#262b37;--tab:#1c212c}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"Segoe UI",Tahoma,sans-serif;line-height:1.6}
-  main{max-width:640px;margin:0 auto;padding:48px 16px}
+  main{max-width:640px;margin:0 auto;padding:40px 16px 56px}
   h1{margin:0 0 4px;font-size:1.7rem}
-  .sub{margin:0 0 28px;color:var(--muted)}
+  .sub{margin:0 0 22px;color:var(--muted)}
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--tab);padding:6px;border-radius:14px;margin-bottom:18px}
+  .tab{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 8px;background:transparent;color:var(--muted);cursor:pointer}
+  .tab[aria-selected=true]{background:var(--accent);color:#fff}
+  .count{font-weight:400;opacity:.85;font-size:.9em}
+  h2{font-size:1rem;color:var(--muted);font-weight:600;margin:22px 0 10px}
   ul{list-style:none;margin:0;padding:0;display:grid;gap:12px}
   li{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
   .ficon{flex:none;width:40px;height:40px;border-radius:10px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);display:grid;place-items:center}
   .info{flex:1;min-width:0}
-  .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}
   .size{color:var(--muted);font-size:.85rem}
   .dl{flex:none;width:44px;height:44px;border-radius:12px;background:var(--accent);color:#fff;display:grid;place-items:center;transition:.15s}
   .dl:hover{background:var(--accent-h);transform:translateY(-1px)}
-  #status{color:var(--muted);text-align:center}
+  .empty,#status{color:var(--muted);text-align:center;margin:18px 0}
 </style>
 </head>
 <body>
 <main>
   <h1>ملفات للتحميل</h1>
-  <p class="sub">اضغط على أيقونة التحميل لتنزيل الملف</p>
-  <ul id="list"></ul>
+  <p class="sub">اختار صفك، واضغط على أيقونة التحميل لتنزيل الملف</p>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <section id="panel" role="tabpanel"></section>
   <p id="status">جاري التحميل…</p>
 </main>
 
 <script>
 /* ===== الإعدادات ===== */
 const CONFIG = {
-  owner: "",        // اسم حسابك على GitHub — اتركه فاضي ليتعرّف تلقائياً
-  repo: "",         // اسم الريبو — اتركه فاضي ليتعرّف تلقائياً
-  folder: "files",  // المجلد اللي بترفع فيه الملفات
-  manualFiles: []   // اختياري: لو بدك تكتب الأسماء يدوياً بدل القراءة التلقائية، مثال: ["cv.pdf","app.zip"]
+  owner: "",          // اسم حسابك على GitHub — اتركه فاضي ليتعرّف تلقائياً
+  repo: "",           // اسم الريبو — اتركه فاضي ليتعرّف تلقائياً
+  branch: "main",
+  folder: "files",
+  classes: [
+    { id: "10", label: "الصف العاشر" },
+    { id: "11", label: "الصف الحادي عشر" }
+  ]
 };
 /* ===================== */
 
 const fileIcon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
 const dlIcon = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
 
-const list = document.getElementById("list");
-const status = document.getElementById("status");
+const $ = id => document.getElementById(id);
+const groups = { general: [] };
+CONFIG.classes.forEach(c => groups[c.id] = []);
+let active = null;
 
 function detectRepo() {
-  const host = location.hostname;                 // username.github.io
+  const host = location.hostname;
+  if (!host.endsWith("github.io")) return { owner: CONFIG.owner || "hkmusameh01", repo: CONFIG.repo || "R" };
   const owner = CONFIG.owner || host.split(".")[0];
   const parts = location.pathname.split("/").filter(Boolean);
   const repo = CONFIG.repo || (parts.length && !parts[0].includes(".") ? parts[0] : host);
@@ -62,34 +75,85 @@ function formatSize(b) {
   return b.toFixed(i ? 1 : 0) + " " + u[i];
 }
 
-function render(files) {
-  if (!files.length) { status.textContent = "لا توجد ملفات حالياً."; return; }
-  status.textContent = "";
-  files.sort((a, b) => a.name.localeCompare(b.name));
-  for (const f of files) {
-    const href = CONFIG.folder + "/" + encodeURIComponent(f.name) + (f.sha ? "?v=" + f.sha.slice(0, 7) : "");
-    const li = document.createElement("li");
-    li.innerHTML = `
-      <div class="ficon">${fileIcon}</div>
-      <div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
-      <a class="dl" href="${href}" download title="تحميل" aria-label="تحميل">${dlIcon}</a>`;
-    li.querySelector(".name").textContent = f.name;
-    li.querySelector(".dl").setAttribute("download", f.name);
-    list.appendChild(li);
+function store(k, v) { try { v === undefined ? (v = localStorage.getItem(k)) : localStorage.setItem(k, v); } catch {} return v; }
+
+function fileItem(f) {
+  const href = f.path.split("/").map(encodeURIComponent).join("/") + (f.sha ? "?v=" + f.sha.slice(0, 7) : "");
+  const li = document.createElement("li");
+  li.innerHTML = `
+    <div class="ficon">${fileIcon}</div>
+    <div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
+    <a class="dl" href="${href}" title="تحميل" aria-label="تحميل">${dlIcon}</a>`;
+  li.querySelector(".name").textContent = f.name;
+  li.querySelector(".dl").setAttribute("download", f.name);
+  return li;
+}
+
+function renderTabs() {
+  const tabs = $("tabs"); tabs.innerHTML = "";
+  for (const c of CONFIG.classes) {
+    const b = document.createElement("button");
+    b.className = "tab"; b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", c.id === active);
+    b.innerHTML = `<span></span> <span class="count">(${groups[c.id].length})</span>`;
+    b.firstChild.textContent = c.label;
+    b.onclick = () => select(c.id);
+    tabs.appendChild(b);
   }
 }
 
+function renderPanel() {
+  const panel = $("panel"); panel.innerHTML = "";
+  const files = groups[active];
+  if (files.length) {
+    const ul = document.createElement("ul");
+    files.forEach(f => ul.appendChild(fileItem(f)));
+    panel.appendChild(ul);
+  } else {
+    const p = document.createElement("p"); p.className = "empty";
+    p.textContent = "ما في ملفات لهاد الصف حالياً.";
+    panel.appendChild(p);
+  }
+  if (groups.general.length) {
+    const h = document.createElement("h2"); h.textContent = "ملفات لكل الصفوف";
+    const ul = document.createElement("ul");
+    groups.general.forEach(f => ul.appendChild(fileItem(f)));
+    panel.append(h, ul);
+  }
+}
+
+function select(id) {
+  active = id;
+  store("class", id);
+  history.replaceState(null, "", "#" + id);
+  renderTabs(); renderPanel();
+}
+
 async function load() {
-  if (CONFIG.manualFiles.length) return render(CONFIG.manualFiles.map(name => ({ name })));
   const { owner, repo } = detectRepo();
+  const hash = location.hash.slice(1);
+  const saved = store("class");
+  active = [hash, saved].find(x => groups[x] && x !== "general") || CONFIG.classes[0].id;
+  renderTabs();
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${CONFIG.folder}`);
-    if (res.status === 404) return render([]);
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${CONFIG.branch}?recursive=1`);
     if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    render(data.filter(x => x.type === "file" && !x.name.startsWith(".")));
+    const { tree } = await res.json();
+    const prefix = CONFIG.folder + "/";
+    for (const x of tree) {
+      if (x.type !== "blob" || !x.path.startsWith(prefix)) continue;
+      const parts = x.path.slice(prefix.length).split("/");
+      const name = parts[parts.length - 1];
+      if (name.startsWith(".")) continue;
+      const f = { name, path: x.path, size: x.size, sha: x.sha };
+      if (parts.length === 1) groups.general.push(f);
+      else if (parts.length === 2 && groups[parts[0]] && parts[0] !== "general") groups[parts[0]].push(f);
+    }
+    Object.values(groups).forEach(g => g.sort((a, b) => a.name.localeCompare(b.name, "ar")));
+    $("status").textContent = "";
+    renderTabs(); renderPanel();
   } catch (e) {
-    status.textContent = "تعذّر جلب قائمة الملفات. تأكد إن الريبو Public وإن مجلد \"" + CONFIG.folder + "\" موجود، أو اكتب الأسماء في manualFiles.";
+    $("status").textContent = "تعذّر جلب قائمة الملفات. حدّث الصفحة بعد شوي.";
   }
 }
 load();
