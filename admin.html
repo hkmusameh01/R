@@ -38,7 +38,8 @@
   li{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
   .info{flex:1;min-width:0}
   .name{font-weight:600;overflow-wrap:anywhere;word-break:break-word}
-  .size{color:var(--muted);font-size:.85rem}
+  .size{color:var(--muted);font-size:.85rem;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+  .dls{display:inline-flex;align-items:center;gap:4px;color:var(--accent);font-weight:600}
   .del{flex:none;width:40px;height:40px;padding:0;display:grid;place-items:center;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
   .del:hover{background:var(--danger);color:#fff}
   .empty{color:var(--muted);margin:4px 0;font-size:.9rem}
@@ -192,12 +193,42 @@ function renderClassPick() {
 
 const trashIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
 
+/* ===== عدّاد التحميل (نفس اللي بصفحة الطلاب) ===== */
+const COUNTER = "https://abacus.jasoncameron.dev";
+async function counterId(path) {
+  const ns = (owner + "-" + repo + "-dl").replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 64);
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path));
+  const key = "f" + [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+  return { ns, key };
+}
+async function getCount(path) {
+  const { ns, key } = await counterId(path);
+  const res = await fetch(`${COUNTER}/get/${ns}/${key}?t=${Date.now()}`);
+  if (res.status === 404) return 0;
+  if (!res.ok) throw new Error(res.status);
+  return (await res.json()).value || 0;
+}
+async function fillCounts(items) {
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) {
+      const { f, el } = items[i++];
+      try { el.textContent = "نزّلوه: " + await getCount(f.path); }
+      catch { el.textContent = "نزّلوه: —"; el.title = "تعذّر جلب العدد"; }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+}
+const dlIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
+let countItems = [];
+
 function fileRow(f) {
   const li = document.createElement("li");
-  li.innerHTML = `<div class="info"><div class="name"></div><div class="size">${formatSize(f.size)}</div></div>
+  li.innerHTML = `<div class="info"><div class="name"></div><div class="size"><span>${formatSize(f.size)}</span><span class="dls" title="عدد الأجهزة اللي نزّلت الملف">${dlIcon}<span>نزّلوه: …</span></span></div></div>
     <button class="del" title="حذف" aria-label="حذف">${trashIcon}</button>`;
   li.querySelector(".name").textContent = f.name;
   li.querySelector(".del").onclick = () => removeFile(f, li);
+  countItems.push({ f, el: li.querySelector(".dls > span") });
   return li;
 }
 
@@ -219,6 +250,7 @@ async function loadList() {
       else if (parts.length === 2 && groups[parts[0]] && parts[0] !== "general") groups[parts[0]].push(f);
     }
     box.innerHTML = "";
+    countItems = [];
     const order = [...CONFIG.classes.map(c => c.id), ...(groups.general.length ? ["general"] : [])];
     for (const id of order) {
       const h = document.createElement("h3");
@@ -234,6 +266,7 @@ async function loadList() {
       box.appendChild(ul);
     }
     setMsg(msg, "");
+    fillCounts(countItems);
     return true;
   } catch (e) {
     setMsg(msg, explain(e), "err");

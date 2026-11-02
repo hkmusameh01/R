@@ -77,6 +77,24 @@ function formatSize(b) {
 
 function store(k, v) { try { v === undefined ? (v = localStorage.getItem(k)) : localStorage.setItem(k, v); } catch {} return v; }
 
+/* ===== عدّاد التحميل: كل جهاز بينحسب مرة وحدة لكل ملف ===== */
+const COUNTER = "https://abacus.jasoncameron.dev";
+async function counterId(path) {
+  const { owner, repo } = detectRepo();
+  const ns = (owner + "-" + repo + "-dl").replace(/[^A-Za-z0-9_.-]/g, "-").slice(0, 64);
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path));
+  const key = "f" + [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+  return { ns, key };
+}
+async function countDownload(path) {
+  try {
+    const { ns, key } = await counterId(path);
+    if (store("dl:" + key)) return;
+    const res = await fetch(`${COUNTER}/hit/${ns}/${key}`, { keepalive: true });
+    if (res.ok) store("dl:" + key, "1");
+  } catch {}
+}
+
 function fileItem(f) {
   const href = f.path.split("/").map(encodeURIComponent).join("/") + (f.sha ? "?v=" + f.sha.slice(0, 7) : "");
   const li = document.createElement("li");
@@ -86,6 +104,7 @@ function fileItem(f) {
     <a class="dl" href="${href}" title="تحميل" aria-label="تحميل">${dlIcon}</a>`;
   li.querySelector(".name").textContent = f.name;
   li.querySelector(".dl").setAttribute("download", f.name);
+  li.querySelector(".dl").addEventListener("click", () => { countDownload(f.path); });
   return li;
 }
 
